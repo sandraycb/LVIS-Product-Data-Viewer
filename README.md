@@ -1,4 +1,4 @@
-# LVIS-Product-Data-Viewer
+# LVIS Product Data Viewer
 
 The LVIS Product Data Viewer was created to allow LVIS users to interactively preview the LVIS L1B data without much coding experience or preprocessing necessary. 
 
