@@ -8,4 +8,4 @@ The viewer works by running a python server and .html script run in a browser. A
 ## Requirements
 
 ## Acknowledgements
-The scripts for this repository were generated with the assistance of Claude Sonnet 4.0
+Code was developed with assistance from Claude (Anthropic) for initial code generation and debugging. Ideas are original to the authors, and all code has been reviewed, tested, and edited by them.
