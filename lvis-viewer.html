@@ -1,0 +1,2408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LVIS Product Data Viewer</title>
+    
+    <!-- 
+    LVIS Product Data Viewer - Client Interface
+    
+    A web-based viewer for LVIS L1B and optional L2 data products.
+    Displays flight paths, coverage areas, and waveform data with interactive maps.
+    
+    Dependencies:
+    - Leaflet 1.9.4 for mapping
+    - Plotly 2.26.0 for waveform visualization
+    
+    Usage:
+    1. Start the LVIS server (lvis-server.py)
+    2. Open this file in a web browser
+    3. Connect to the server (default: http://localhost:5000)
+    4. Select files to view and interact with the map
+    
+    Version: 1.0.0
+    -->
+    
+    <!-- External Dependencies -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #3d425f 0%, #764ba2 100%);
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        
+        .header h1 {
+            font-size: 20px;
+            font-weight: 400;
+        }
+        
+        .main-container {
+            display: flex;
+            height: calc(100vh - 50px);
+        }
+        
+        .sidebar {
+            width: 380px;
+            background: #2d2d2d;
+            overflow-y: auto;
+            border-right: 1px solid #444;
+        }
+        
+        .map-container {
+            flex: 1;
+            position: relative;
+        }
+        
+        .waveform-panel {
+            width: 600px;
+            background: #2d2d2d;
+            border-left: 1px solid #444;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            transition: width 0.3s ease;
+        }
+        
+        .waveform-panel.small {
+            width: 400px;
+        }
+        
+        .waveform-panel.large {
+            width: 800px;
+        }
+        
+        #map {
+            height: 100%;
+            width: 100%;
+            background: #0a0a0a;
+        }
+        
+        .panel {
+            background: #333;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px;
+        }
+        
+        .panel h3 {
+            margin: 0 0 12px 0;
+            color: #4ecdc4;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .file-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: #2a2a2a;
+            padding: 5px;
+        }
+        
+        .file-item {
+            padding: 8px 10px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 12px;
+            background: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .file-item:hover {
+            background: #444;
+            border-color: #666;
+        }
+        
+        .file-item.active {
+            background: #3a4a5a;
+            border-color: #4ecdc4;
+        }
+        
+        .file-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #4ecdc4;
+        }
+        
+        .file-details {
+            flex: 1;
+        }
+        
+        .file-name {
+            font-weight: 500;
+            margin-bottom: 2px;
+        }
+        
+        .file-stats {
+            font-size: 10px;
+            color: #888;
+        }
+        
+        .file-item.disabled {
+            opacity: 0.5;
+        }
+        
+        .file-item.in-view {
+            border-left: 3px solid #4ecdc4;
+            padding-left: 7px;
+        }
+        
+        .btn {
+            background: #4ecdc4;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+            width: 100%;
+            margin-bottom: 8px;
+        }
+        
+        .btn:hover {
+            background: #45b7aa;
+            transform: translateY(-1px);
+        }
+        
+        .btn:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-secondary {
+            background: #666;
+        }
+        
+        .btn-secondary:hover {
+            background: #777;
+        }
+        
+        .btn-pause {
+            background: #ff6b6b;
+        }
+        
+        .btn-pause:hover {
+            background: #ff5252;
+        }
+        
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-size: 13px;
+            text-align: center;
+        }
+        
+        .status.success {
+            background: #51cf66;
+            color: white;
+        }
+        
+        .status.error {
+            background: #ff6b6b;
+            color: white;
+        }
+        
+        .status.info {
+            background: #444;
+            color: #ccc;
+        }
+        
+        .status.warning {
+            background: #ff6b6b;
+            color: white;
+        }
+        
+        .status.paused {
+            background: #ffb74d;
+            color: #333;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #4ecdc4;
+            font-style: italic;
+        }
+        
+        .zoom-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(45, 45, 45, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            z-index: 1000;
+            font-size: 12px;
+        }
+        
+        #waveform-plot {
+            min-height: 600px;
+            flex-shrink: 0;
+        }
+        
+        .stat {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+            padding: 2px 0;
+            border-bottom: 1px solid #444;
+            font-size: 11px;
+        }
+        
+        .stat:last-child {
+            border-bottom: none;
+        }
+        
+        .shot-info {
+            background: #444;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-top: 0;
+        }
+        
+        .waveform-header {
+            padding: 10px;
+            background: #333;
+            border-bottom: 1px solid #444;
+        }
+        
+        .waveform-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            width: 100%;
+        }
+
+        .vertical-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+        }
+        
+        .size-controls {
+            display: flex;
+            gap: 5px;
+            flex-shrink: 0;
+        }
+        
+        .size-btn {
+            background: #444;
+            color: white;
+            border: 1px solid #666;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            min-width: 25px;
+            transition: all 0.2s;
+        }
+        
+        .size-btn:hover {
+            background: #555;
+            border-color: #4ecdc4;
+        }
+        
+        .size-btn.active {
+            background: #4ecdc4;
+            border-color: #4ecdc4;
+            color: white;
+        }
+        
+        .waveform-content {
+            flex: 1;
+            padding: 10px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        /* Style scrollbar for waveform content */
+        .waveform-content::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .waveform-content::-webkit-scrollbar-track {
+            background: #333;
+        }
+        
+        .waveform-content::-webkit-scrollbar-thumb {
+            background: #666;
+            border-radius: 4px;
+        }
+        
+        .waveform-content::-webkit-scrollbar-thumb:hover {
+            background: #777;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        
+        .button-group .btn {
+            flex: 1;
+            margin-bottom: 0;
+        }
+        
+        /* Loading overlay */
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+        
+        .spinner {
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top: 3px solid #4ecdc4;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .view-controls {
+            background: #444;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        
+        .view-option {
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+        
+        .view-option input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #4ecdc4;
+        }
+        
+        .file-in-view {
+            padding: 6px 8px;
+            background: #444;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            font-size: 11px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .file-in-view-checkbox {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: #4ecdc4;
+            margin-right: 8px;
+        }
+        
+        .file-in-view-content {
+            display: flex;
+            align-items: center;
+            flex: 1;
+            cursor: pointer;
+        }
+        
+        .file-in-view .file-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .file-in-view .shot-count {
+            color: #4ecdc4;
+            font-weight: 500;
+            margin-left: 8px;
+        }
+        
+        .file-in-view.highlighted {
+            background: #3a4a5a;
+            border: 1px solid #4ecdc4;
+        }
+        
+        .file-in-view.disabled {
+            opacity: 0.5;
+        }
+        
+        .color-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            border: 1px solid white;
+        }
+        
+        .files-in-view-toggle {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(45, 45, 45, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            z-index: 1000;
+            display: none;
+            max-width: 90%;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .files-in-view-toggle h4 {
+            margin: 0 0 10px 0;
+            color: #4ecdc4;
+            font-size: 14px;
+            text-align: center;
+        }
+        
+        .file-toggle-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            padding: 4px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        
+        .file-toggle-item:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .file-toggle-item.disabled {
+            opacity: 0.5;
+        }
+        
+        .file-toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            flex: 1;
+            font-size: 12px;
+        }
+        
+        .l2-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            background: #555;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #666;
+        }
+        
+        .l2-toggle input {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: #4ecdc4;
+        }
+
+        .rh-selector {
+            background: #444;
+            padding: 6px 8px;
+            border-radius: 4px;
+            border: 1px solid #666;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .rh-checkboxes {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .rh-checkboxes label {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            cursor: pointer;
+        }
+
+        .rh-selector input[type="checkbox"] {
+            width: 12px;
+            height: 12px;
+            cursor: pointer;
+            accent-color: #4ecdc4;
+        }
+
+        .rh-selector label {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .rh-selector label:hover {
+            color: #4ecdc4;
+        }
+        
+        .boundary-progress {
+            background: #444;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 11px;
+            text-align: center;
+            display: none;
+        }
+        
+        .boundary-progress.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>✈️ LVIS Product Data Viewer</h1>
+        <div>
+            <span style="font-size: 14px; margin-right: 20px;">
+                Connected to: <span id="server-display">http://localhost:5000</span>
+            </span>
+        </div>
+    </div>
+    
+    <div class="main-container">
+        <div class="sidebar">
+            <!-- Server Connection Panel -->
+            <div class="panel">
+                <h3>
+                    <span>🔌</span>
+                    Server Connection
+                </h3>
+                <div id="connection-status" class="status info">
+                    Connecting to server...
+                </div>
+                <input type="text" id="server-url" value="http://localhost:5000" 
+                       placeholder="Server URL" 
+                       style="width: 100%; padding: 8px; margin-bottom: 8px; background: #444; border: 1px solid #666; color: white; border-radius: 4px;">
+                <button class="btn" onclick="connectToServer()">Reconnect</button>
+            </div>
+            
+            <!-- Files Panel -->
+            <div class="panel">
+                <h3>
+                    <span>📁</span>
+                    LVIS Files
+                    <span id="file-count" style="font-size: 11px; color: #888; margin-left: auto;"></span>
+                </h3>
+                
+                <!-- View Controls -->
+                <div class="view-controls">
+                    <button id="pause-btn" class="btn" onclick="togglePause()">
+                        ⏸️ Pause Viewing
+                    </button>
+                    <div class="button-group">
+                        <button class="btn btn-secondary" onclick="toggleAll(true)">Check All</button>
+                        <button class="btn btn-secondary" onclick="toggleAll(false)">Uncheck All</button>
+                    </div>
+                    <div class="view-option">
+                        <input type="checkbox" id="show-polygons" checked onchange="updateMapView()">
+                        <label for="show-polygons">Show Coverage Areas</label>
+                    </div>
+                    <div class="view-option">
+                        <input type="checkbox" id="show-boxes" onchange="updateMapView()">
+                        <label for="show-boxes">Show Bounding Boxes</label>
+                    </div>
+                </div>
+                
+                <div id="file-list" class="file-list">
+                    <div class="loading">No files loaded</div>
+                </div>
+                
+                <div class="button-group" style="margin-top: 10px;">
+                    <button class="btn" onclick="refreshFiles()">🔄 Refresh</button>
+                    <button class="btn btn-secondary" onclick="clearSelection()">Clear Selection</button>
+                </div>
+                
+                <div id="boundary-progress" class="boundary-progress">
+                    Loading boundaries: <span id="boundary-progress-text">0/0</span>
+                </div>
+            </div>
+            
+            <!-- Dataset Info Panel -->
+            <div class="panel">
+                <h3>
+                    <span>📊</span>
+                    Dataset Statistics
+                </h3>
+                <div id="dataset-stats">
+                    <div class="stat">
+                        <span>Total Files:</span>
+                        <span id="total-files">0</span>
+                    </div>
+                    <div class="stat">
+                        <span>Enabled Files:</span>
+                        <span id="enabled-files">0</span>
+                    </div>
+                    <div class="stat">
+                        <span>Active File:</span>
+                        <span id="active-file" style="color: #4ecdc4;">None</span>
+                    </div>
+                    <div class="stat">
+                        <span>Total Shots:</span>
+                        <span id="total-shots">0</span>
+                    </div>
+                    <div class="stat">
+                        <span>Current Zoom:</span>
+                        <span id="current-zoom">8</span>
+                    </div>
+                    <div class="stat">
+                        <span>Display Mode:</span>
+                        <span id="display-mode" style="color: #ff6b6b;">Zoom In</span>
+                    </div>
+                    <div class="stat">
+                        <span>Status:</span>
+                        <span id="view-status" style="color: #4ecdc4;">Active</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Files in View Panel (shown when zoomed in) -->
+            <div class="panel" id="files-in-view-panel" style="display: none;">
+                <h3>
+                    <span>👁️</span>
+                    Files With Data in View
+                    <span style="font-size: 11px; color: #888; margin-left: auto;">
+                        (zoom 17+)
+                    </span>
+                </h3>
+                <div style="font-size: 11px; color: #888; margin-bottom: 10px;">
+                    Files with data in view (toggle to show/hide markers):
+                </div>
+                <div id="files-in-view-list" style="font-size: 12px;">
+                    <!-- Will be populated dynamically -->
+                </div>
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #444; font-size: 11px; color: #888;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Total visible shots:</span>
+                        <span id="visible-shot-count" style="color: #4ecdc4; font-weight: 500;">0</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Instructions Panel -->
+            <div class="panel">
+                <h3>
+                    <span>🎯</span>
+                    How to Use
+                </h3>
+                <ol style="font-size: 12px; line-height: 1.6; margin-left: 20px;">
+                    <li>Toggle files on/off with checkboxes</li>
+                    <li>Click file name to highlight</li>
+                    <li>Zoom &lt;12: Shows convex hull coverage</li>
+                    <li>Zoom 12-16: Shows detailed boundary</li>
+                    <li>Zoom 17+: Shows individual shots</li>
+                    <li>Click shots to view waveform + L2 metrics</li>
+                    <li>Use pause to freeze current view</li>
+                    <li>Pan graph with click & drag</li>
+                </ol>
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #444; font-size: 11px; color: #888;">
+                    <strong>L2 Metrics (if available):</strong><br>
+                    • ZG (green) - Ground elevation<br>
+                    • ZT (dark green) - Top of canopy<br>
+                    • RH values (colored) - Heights above ground<br>
+                    • Toggle L2 lines on/off in waveform panel
+                </div>
+            </div>
+        </div>
+        
+        <div class="map-container">
+            <div id="map"></div>
+            
+            <!-- Zoom Controls -->
+            <div class="zoom-controls">
+                <div id="zoom-warning" class="status warning" style="display: none;">
+                    Zoom in to see data
+                </div>
+                <button class="btn" onclick="fitAllBounds()">
+                    🗺️ Fit All Data
+                </button>
+            </div>
+            
+            <!-- Files in View Toggle (Bottom) -->
+            <div class="files-in-view-toggle" id="files-in-view-toggle">
+                <h4>Toggle Files With Data in View</h4>
+                <div id="files-toggle-list">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </div>
+            
+            <!-- Loading overlay -->
+            <div id="map-loading" class="loading-overlay" style="display: none;">
+                <div class="spinner"></div>
+            </div>
+        </div>
+        
+        <div class="waveform-panel">
+            <div class="waveform-header">
+                <div class="waveform-controls">
+                    <div class="vertical-controls">
+                        <div class="l2-toggle">
+                            <input type="checkbox" id="show-l2-metrics" checked onchange="updateWaveformDisplay()">
+                            <label for="show-l2-metrics">Show L2 Metrics</label>
+                        </div>
+                        <div class="rh-selector">
+                            <span style="font-size: 11px; color: #888;">RH Metrics:</span>
+                            <div class="rh-checkboxes">
+                                <label><input type="checkbox" value="RH25" checked onchange="updateRHSelection()">25</label>
+                                <label><input type="checkbox" value="RH50" checked onchange="updateRHSelection()">50</label>
+                                <label><input type="checkbox" value="RH75" checked onchange="updateRHSelection()">75</label>
+                                <label><input type="checkbox" value="RH95" checked onchange="updateRHSelection()">95</label>
+                                <label><input type="checkbox" value="RH100" checked onchange="updateRHSelection()">100</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="size-controls">
+                        <button class="size-btn" onclick="setWaveformSize('small')">S</button>
+                        <button class="size-btn active" onclick="setWaveformSize('medium')">M</button>
+                        <button class="size-btn" onclick="setWaveformSize('large')">L</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="waveform-content">
+                <div id="no-waveform" style="text-align: center; padding: 40px; color: #888;">
+                    Click a marker to view waveform data
+                </div>
+                
+                <div id="waveform-plot"></div>
+                
+                <div id="shot-info" style="display: none;">
+                    <!-- Shot information will be displayed here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== Configuration Constants =====
+        const CONFIG = {
+            boxZoomThreshold: 6,
+            detailedBoundaryThreshold: 12,
+            markerZoomThreshold: 17,
+            maxMarkersPerView: 10000,
+            maxConcurrentBoundaryLoads: 4,
+            boundaryLoadWarningThreshold: 40,
+            animationDelays: {
+                clearDelay: 50,
+                updateDelay: 100,
+                fitBoundsDelay: 300,
+                resizeDelay: 350,
+                initialLoadDelay: 500
+            }
+        };
+        
+        // ===== Global Variables =====
+        let map;
+        let serverUrl = 'http://localhost:5000';
+        let allFiles = [];
+        let currentFile = null;
+        let enabledFiles = new Set();
+        let filesInView = new Map();
+        let filesInBounds = new Map();
+        let markers = new Map();
+        let flightPaths = new Map();
+        let flightBoxes = new Map();
+        let coveragePolygons = new Map();
+        let detailedPolygons = new Map();
+        let detailedBoundaryCache = new Map();
+        let selectedMarker = null;
+        let isPaused = false;
+        let updateTimer = null;
+        let fileColors = new Map();
+        let initialLoadComplete = false;
+        let loadingDetailedPolygons = false;
+        let currentWaveformData = null;
+        let selectedRHMetrics = new Set(['RH25', 'RH50', 'RH75', 'RH95', 'RH100']);
+        let currentPlotRange = null;
+        let currentPlotShotNumber = null;
+        
+        // Color palette for files
+        const colorPalette = [
+            '#ff6b6b', '#4ecdc4', '#45b7aa', '#f7b731', '#5f27cd',
+            '#00d2d3', '#ff9ff3', '#54a0ff', '#48dbfb', '#1dd1a1',
+            '#feca57', '#ff9ff3', '#ff6b9d', '#c44569', '#f8b500',
+            '#18dcff', '#7d5fff', '#cd84f1', '#ffcccc', '#ff4757',
+            '#3742fa', '#2ed573', '#eccc68', '#ff7675', '#74b9ff',
+            '#a29bfe', '#81ecec', '#fdcb6e', '#e17055', '#0984e3'
+        ];
+        
+        // ===== Utility Functions =====
+        
+        function getFileColor(filename, index) {
+            if (!fileColors.has(filename)) {
+                const color = colorPalette[index % colorPalette.length];
+                fileColors.set(filename, color);
+            }
+            return fileColors.get(filename);
+        }
+        
+        function showLoading(show) {
+            document.getElementById('map-loading').style.display = show ? 'flex' : 'none';
+        }
+        
+        function boundsIntersect(bounds1, bounds2) {
+            return !(bounds1.maxLat < bounds2.minLat || 
+                    bounds1.minLat > bounds2.maxLat ||
+                    bounds1.maxLon < bounds2.minLon ||
+                    bounds1.minLon > bounds2.maxLon);
+        }
+        
+        function clearAllCaches() {
+            // Clear all map element caches
+            markers.clear();
+            flightPaths.clear();
+            flightBoxes.clear();
+            coveragePolygons.clear();
+            detailedPolygons.clear();
+            detailedBoundaryCache.clear();
+            
+            // Reset view state
+            filesInView.clear();
+            filesInBounds.clear();
+            selectedMarker = null;
+            currentWaveformData = null;
+            currentPlotRange = null;
+            currentPlotShotNumber = null;
+        }
+        
+        // ===== Map Initialization and Controls =====
+        
+        function initMap() {
+            map = L.map('map').setView([65.0, -147.0], 8);
+            
+            // Add multiple base layers
+            const baseLayers = {
+                'Satellite': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                    attribution: 'Tiles &copy; Esri',
+                    maxZoom: 18
+                }),
+                'Terrain': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 17
+                }),
+                'Dark': L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png', {
+                    maxZoom: 20
+                })
+            };
+            
+            baseLayers['Satellite'].addTo(map);
+            L.control.layers(baseLayers).addTo(map);
+            
+            // Map events with debouncing
+            map.on('zoomend', () => {
+                const zoom = map.getZoom();
+                
+                if (!isPaused) {
+                    // Cancel any pending update
+                    if (updateTimer) {
+                        clearTimeout(updateTimer);
+                    }
+                    
+                    // If zooming out below marker threshold, clear immediately
+                    if (zoom < CONFIG.markerZoomThreshold && markers.size > 0) {
+                        clearMarkers();
+                        clearWaveformDisplay();
+                        updateZoomDisplay();
+                    }
+                    
+                    // Schedule full update after a short delay
+                    updateTimer = setTimeout(() => {
+                        updateMapView();
+                        updateZoomDisplay();
+                    }, CONFIG.animationDelays.updateDelay);
+                }
+            });
+            
+            map.on('moveend', () => {
+                if (!isPaused) {
+                    const zoom = map.getZoom();
+                    if (zoom >= CONFIG.boxZoomThreshold) {
+                        if (updateTimer) {
+                            clearTimeout(updateTimer);
+                        }
+                        
+                        updateTimer = setTimeout(() => {
+                            updateMapView();
+                        }, CONFIG.animationDelays.updateDelay);
+                    }
+                }
+            });
+        }
+        
+        // ===== Server Connection Functions =====
+        
+        async function connectToServer() {
+            serverUrl = document.getElementById('server-url').value;
+            document.getElementById('server-display').textContent = serverUrl;
+            
+            const statusEl = document.getElementById('connection-status');
+            statusEl.className = 'status info';
+            statusEl.textContent = 'Connecting...';
+            
+            try {
+                // Get all files with polygons
+                const response = await fetch(`${serverUrl}/api/files/polygons?zoom=10`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    statusEl.className = 'status success';
+                    statusEl.textContent = `✓ Connected! ${data.count} files found`;
+                    
+                    // Process polygon data into our file format
+                    allFiles = data.polygons.map(item => ({
+                        filename: item.filename,
+                        shot_count: item.shot_count,
+                        date: item.date,
+                        bounds: calculateBoundsFromPolygon(item.polygon),
+                        polygon: item.polygon,
+                        has_polygon: true,
+                        has_detailed: item.has_detailed || false
+                    }));
+                    
+                    // Enable all files by default
+                    allFiles.forEach(file => enabledFiles.add(file.filename));
+                    
+                    displayFiles(allFiles);
+                    updateStats();
+                    
+                    // Auto-fit to all data on initial load
+                    if (!initialLoadComplete && allFiles.length > 0) {
+                        setTimeout(() => {
+                            fitAllBounds();
+                            initialLoadComplete = true;
+                        }, CONFIG.animationDelays.initialLoadDelay);
+                    }
+                    
+                    // Load initial view
+                    updateMapView();
+                } else {
+                    throw new Error(data.error || 'Unknown error');
+                }
+            } catch (error) {
+                statusEl.className = 'status error';
+                statusEl.textContent = `✗ Connection failed: ${error.message}`;
+            }
+        }
+        
+        function refreshFiles() {
+            // Clear all caches first
+            clearAllMapElements();
+            clearAllCaches();
+            clearWaveformDisplay();
+            
+            // Reset selection states
+            currentFile = null;
+            document.getElementById('active-file').textContent = 'None';
+            
+            // Reconnect to server
+            connectToServer();
+        }
+        
+        // ===== File Management Functions =====
+        
+        function displayFiles(files) {
+            const fileList = document.getElementById('file-list');
+            fileList.innerHTML = '';
+            
+            document.getElementById('file-count').textContent = `(${files.length})`;
+            
+            if (files.length === 0) {
+                fileList.innerHTML = '<p style="color: #888; padding: 10px;">No .h5 files found</p>';
+                return;
+            }
+            
+            files.forEach((file, index) => {
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                item.id = `file-item-${file.filename}`;
+                
+                if (currentFile === file.filename) {
+                    item.classList.add('active');
+                }
+                
+                if (!enabledFiles.has(file.filename)) {
+                    item.classList.add('disabled');
+                }
+                
+                const fileColor = getFileColor(file.filename, index);
+                
+                const detailIndicator = file.has_detailed ? ' • 🔍' : '';
+                
+                item.innerHTML = `
+                    <input type="checkbox" class="file-checkbox" 
+                           id="check-${file.filename}"
+                           ${enabledFiles.has(file.filename) ? 'checked' : ''}
+                           onchange="toggleFile('${file.filename}')">
+                    <div class="color-indicator" style="background-color: ${fileColor};"></div>
+                    <div class="file-details" onclick="selectFile('${file.filename}', event)">
+                        <div class="file-name">${file.filename}</div>
+                        <div class="file-stats">
+                            ${file.shot_count.toLocaleString()} shots • ${file.date} ${file.has_polygon ? '• 📍' : ''}${detailIndicator}
+                        </div>
+                    </div>
+                `;
+                
+                fileList.appendChild(item);
+            });
+        }
+        
+        function toggleFile(filename) {
+            if (enabledFiles.has(filename)) {
+                enabledFiles.delete(filename);
+                document.getElementById(`file-item-${filename}`).classList.add('disabled');
+            } else {
+                enabledFiles.add(filename);
+                document.getElementById(`file-item-${filename}`).classList.remove('disabled');
+            }
+            
+            updateStats();
+            
+            if (!isPaused) {
+                updateMapView();
+            }
+        }
+        
+        function toggleAll(checked) {
+            if (checked) {
+                allFiles.forEach(file => enabledFiles.add(file.filename));
+            } else {
+                enabledFiles.clear();
+            }
+            
+            // Update checkboxes
+            document.querySelectorAll('.file-checkbox').forEach(cb => {
+                cb.checked = checked;
+            });
+            
+            // Update visual state
+            document.querySelectorAll('.file-item').forEach(item => {
+                if (checked) {
+                    item.classList.remove('disabled');
+                } else {
+                    item.classList.add('disabled');
+                }
+            });
+            
+            updateStats();
+            
+            if (!isPaused) {
+                updateMapView();
+            }
+        }
+        
+        function selectFile(filename, event) {
+            // Don't select if clicking on checkbox
+            if (event && event.target.type === 'checkbox') return;
+            
+            if (currentFile === filename) {
+                // Deselect if clicking same file
+                currentFile = null;
+            } else {
+                currentFile = filename;
+            }
+            
+            // Update UI
+            document.querySelectorAll('.file-item').forEach(el => el.classList.remove('active'));
+            if (currentFile) {
+                document.getElementById(`file-item-${filename}`).classList.add('active');
+                document.getElementById('active-file').textContent = 
+                    currentFile.length > 20 ? currentFile.substring(0, 20) + '...' : currentFile;
+            } else {
+                document.getElementById('active-file').textContent = 'None';
+            }
+            
+            // Reload map view
+            if (!isPaused) {
+                updateMapView();
+            }
+        }
+        
+        function clearSelection() {
+            currentFile = null;
+            displayFiles(allFiles);
+            document.getElementById('active-file').textContent = 'None';
+            if (!isPaused) {
+                updateMapView();
+            }
+        }
+        
+        // ===== View Control Functions =====
+        
+        function togglePause() {
+            isPaused = !isPaused;
+            const btn = document.getElementById('pause-btn');
+            const status = document.getElementById('view-status');
+            
+            if (isPaused) {
+                btn.textContent = '▶️ Resume Viewing';
+                btn.classList.add('btn-pause');
+                status.textContent = 'Paused';
+                status.style.color = '#ffb74d';
+                
+                // Show paused indicator on map
+                const pausedEl = document.createElement('div');
+                pausedEl.id = 'paused-indicator';
+                pausedEl.className = 'status paused';
+                pausedEl.style.position = 'absolute';
+                pausedEl.style.top = '50%';
+                pausedEl.style.left = '50%';
+                pausedEl.style.transform = 'translate(-50%, -50%)';
+                pausedEl.style.zIndex = '1500';
+                pausedEl.textContent = '⏸️ VIEWING PAUSED';
+                document.querySelector('.map-container').appendChild(pausedEl);
+            } else {
+                btn.textContent = '⏸️ Pause Viewing';
+                btn.classList.remove('btn-pause');
+                status.textContent = 'Active';
+                status.style.color = '#4ecdc4';
+                
+                // Remove paused indicator
+                const pausedEl = document.getElementById('paused-indicator');
+                if (pausedEl) pausedEl.remove();
+                
+                // Refresh view
+                updateMapView();
+            }
+        }
+        
+        function fitAllBounds() {
+            const enabledFilesArray = allFiles.filter(f => enabledFiles.has(f.filename));
+            
+            if (enabledFilesArray.length === 0) {
+                alert('No files are enabled. Check some files to see their data.');
+                return;
+            }
+            
+            let bounds = {
+                minLat: Infinity, maxLat: -Infinity,
+                minLon: Infinity, maxLon: -Infinity
+            };
+            
+            enabledFilesArray.forEach(file => {
+                bounds.minLat = Math.min(bounds.minLat, file.bounds.minLat);
+                bounds.maxLat = Math.max(bounds.maxLat, file.bounds.maxLat);
+                bounds.minLon = Math.min(bounds.minLon, file.bounds.minLon);
+                bounds.maxLon = Math.max(bounds.maxLon, file.bounds.maxLon);
+            });
+            
+            map.fitBounds([
+                [bounds.minLat, bounds.minLon],
+                [bounds.maxLat, bounds.maxLon]
+            ], { padding: [50, 50] });
+
+            // Force update after bounds change
+            setTimeout(() => {
+                updateMapView();
+            }, CONFIG.animationDelays.fitBoundsDelay);
+        }
+        
+        // ===== Map Display Functions =====
+        
+        async function updateMapView() {
+            if (isPaused) return;
+            
+            const zoom = map.getZoom();
+            document.getElementById('current-zoom').textContent = Math.floor(zoom);
+            
+            // Cancel any pending detailed polygon loading
+            loadingDetailedPolygons = false;
+            
+            // Force clear everything first
+            await new Promise(resolve => setTimeout(resolve, CONFIG.animationDelays.clearDelay));
+            
+            // Clear again just to be sure
+            clearAllMapElements();
+            
+            filesInView.clear();
+            filesInBounds.clear();
+            
+            if (zoom < CONFIG.boxZoomThreshold) {
+                // Too zoomed out
+                document.getElementById('zoom-warning').style.display = 'block';
+                document.getElementById('zoom-warning').textContent = 
+                    `Zoom to level ${CONFIG.boxZoomThreshold}+ to see flight paths`;
+                document.getElementById('display-mode').textContent = 'Too Zoomed Out';
+                document.getElementById('display-mode').style.color = '#ff6b6b';
+                document.getElementById('files-in-view-panel').style.display = 'none';
+                document.getElementById('files-in-view-toggle').style.display = 'none';
+                
+                clearWaveformDisplay();
+                
+                // Clear files in view lists
+                document.getElementById('files-toggle-list').innerHTML = '';
+                document.getElementById('files-in-view-list').innerHTML = '<p style="color: #888; text-align: center;">Zoom in to see data</p>';
+                document.getElementById('visible-shot-count').textContent = '0';
+                
+            } else if (zoom < CONFIG.detailedBoundaryThreshold) {
+                // Show convex hull coverage polygons (zoom 6-11)
+                document.getElementById('zoom-warning').style.display = 'block';
+                document.getElementById('zoom-warning').textContent = 
+                    `Zoom to level ${CONFIG.detailedBoundaryThreshold}+ to see detailed boundaries`;
+                document.getElementById('display-mode').textContent = 'Convex Hull Coverage';
+                document.getElementById('display-mode').style.color = '#f7b731';
+                document.getElementById('files-in-view-panel').style.display = 'none';
+                document.getElementById('files-in-view-toggle').style.display = 'none';
+                
+                clearWaveformDisplay();
+                
+                // Clear files in view toggle
+                document.getElementById('files-toggle-list').innerHTML = '';
+                
+                if (document.getElementById('show-polygons').checked) {
+                    displayCoveragePolygons();
+                }
+                if (document.getElementById('show-boxes').checked) {
+                    displayFlightBoxes();
+                }
+                
+            } else if (zoom < CONFIG.markerZoomThreshold) {
+                // Show detailed boundary polygons (zoom 12-16)
+                document.getElementById('zoom-warning').style.display = 'block';
+                document.getElementById('zoom-warning').textContent = 
+                    `Zoom to level ${CONFIG.markerZoomThreshold}+ to see individual shots`;
+                document.getElementById('display-mode').textContent = 'Detailed Boundaries';
+                document.getElementById('display-mode').style.color = '#ffb74d';
+                document.getElementById('files-in-view-panel').style.display = 'none';
+                document.getElementById('files-in-view-toggle').style.display = 'none';
+                
+                clearWaveformDisplay();
+                
+                // Clear files in view toggle
+                document.getElementById('files-toggle-list').innerHTML = '';
+                
+                if (document.getElementById('show-polygons').checked) {
+                    loadingDetailedPolygons = true;
+                    await displayDetailedBoundaryPolygons();
+                }
+                if (document.getElementById('show-boxes').checked) {
+                    displayFlightBoxes();
+                }
+                
+            } else {
+                // Show individual markers (zoom 17+)
+                document.getElementById('zoom-warning').style.display = 'none';
+                document.getElementById('display-mode').textContent = 'Individual Shots';
+                document.getElementById('display-mode').style.color = '#4ecdc4';
+                document.getElementById('files-in-view-panel').style.display = 'block';
+                document.getElementById('files-in-view-toggle').style.display = 'block';
+                
+                await loadMarkers();
+                updateFilesInViewDisplay();
+                updateFilesToggleDisplay();
+            }
+        }
+        
+        // ===== Polygon and Marker Display Functions =====
+        
+        // Note: All polygon display functions check bounds to only load
+        // data for files visible in the current map view. This significantly
+        // improves performance when working with many files.
+        
+        function displayCoveragePolygons() {
+            // Clear any existing detailed polygons first
+            clearDetailedPolygons();
+            
+            // Get current map bounds
+            const mapBounds = map.getBounds();
+            const mapBoundsObj = {
+                minLat: mapBounds.getSouth(),
+                maxLat: mapBounds.getNorth(),
+                minLon: mapBounds.getWest(),
+                maxLon: mapBounds.getEast()
+            };
+            
+            const filesToShow = allFiles.filter(f => {
+                if (!enabledFiles.has(f.filename)) return false;
+                if (currentFile && f.filename !== currentFile) return false;
+                if (!f.polygon) return false;
+                
+                // Check if file bounds intersect with map bounds
+                return boundsIntersect(f.bounds, mapBoundsObj);
+            });
+            
+            filesToShow.forEach((file, index) => {
+                const fileColor = getFileColor(file.filename, allFiles.indexOf(file));
+                
+                // Create Leaflet polygon from GeoJSON
+                const geoJsonLayer = L.geoJSON(file.polygon, {
+                    style: {
+                        fillColor: currentFile === file.filename ? '#4ecdc4' : fileColor,
+                        color: currentFile === file.filename ? '#4ecdc4' : fileColor,
+                        weight: currentFile === file.filename ? 3 : 2,
+                        opacity: 0.8,
+                        fillOpacity: 0.2
+                    }
+                });
+                
+                // Add popup
+                const popupContent = `
+                    <div style="font-size: 12px;">
+                        <strong>${file.filename}</strong><br>
+                        <strong>Shots:</strong> ${file.shot_count.toLocaleString()}<br>
+                        <strong>Date:</strong> ${file.date}<br>
+                        <strong>Coverage:</strong> Convex hull
+                    </div>
+                `;
+                
+                geoJsonLayer.bindPopup(popupContent);
+                
+                // Click to select file
+                geoJsonLayer.on('click', () => {
+                    selectFile(file.filename);
+                });
+                
+                geoJsonLayer.addTo(map);
+                coveragePolygons.set(file.filename, geoJsonLayer);
+            });
+        }
+        
+        async function displayDetailedBoundaryPolygons() {
+            // Clear any existing convex hull polygons first
+            clearPolygons();
+            
+            // Get current map bounds
+            const mapBounds = map.getBounds();
+            const mapBoundsObj = {
+                minLat: mapBounds.getSouth(),
+                maxLat: mapBounds.getNorth(),
+                minLon: mapBounds.getWest(),
+                maxLon: mapBounds.getEast()
+            };
+            
+            // Only show files that are visible in current bounds
+            const filesToShow = allFiles.filter(f => {
+                if (!enabledFiles.has(f.filename)) return false;
+                if (currentFile && f.filename !== currentFile) return false;
+                
+                // Check if file bounds intersect with map bounds
+                return boundsIntersect(f.bounds, mapBoundsObj);
+            });
+            
+            // Show progress if loading many files
+            if (filesToShow.length > CONFIG.boundaryLoadWarningThreshold) {
+                const progressEl = document.getElementById('boundary-progress');
+                progressEl.classList.add('active');
+                document.getElementById('boundary-progress-text').textContent = `0/${filesToShow.length}`;
+            }
+            
+            // Load boundaries with controlled concurrency
+            await loadBoundariesWithConcurrency(filesToShow, CONFIG.maxConcurrentBoundaryLoads);
+            
+            // Hide progress
+            document.getElementById('boundary-progress').classList.remove('active');
+            
+            loadingDetailedPolygons = false;
+        }
+        
+        async function loadBoundariesWithConcurrency(files, limit) {
+            let completed = 0;
+            const progressText = document.getElementById('boundary-progress-text');
+            
+            for (let i = 0; i < files.length; i += limit) {
+                const batch = files.slice(i, i + limit);
+                
+                const promises = batch.map(async (file) => {
+                    // Check if we should stop loading (zoom changed)
+                    if (!loadingDetailedPolygons) return;
+                    
+                    // Check cache first
+                    if (detailedBoundaryCache.has(file.filename)) {
+                        const cachedData = detailedBoundaryCache.get(file.filename);
+                        displayDetailedBoundaryForFile(file, cachedData);
+                        return;
+                    }
+                    
+                    const fileColor = getFileColor(file.filename, allFiles.indexOf(file));
+                    
+                    try {
+                        // Fetch detailed boundary
+                        const response = await fetch(`${serverUrl}/api/file/${file.filename}/detailed`);
+                        const data = await response.json();
+                        
+                        // Check again if we should continue
+                        if (!loadingDetailedPolygons) return;
+                        
+                        if (data.success && data.polygon) {
+                            // Cache the data
+                            detailedBoundaryCache.set(file.filename, data.polygon);
+                            
+                            // Display if still in correct zoom level
+                            if (loadingDetailedPolygons) {
+                                displayDetailedBoundaryForFile(file, data.polygon);
+                            }
+                        } else {
+                            // Fall back to convex hull if detailed boundary not available
+                            if (loadingDetailedPolygons) {
+                                displayCoveragePolygonForFile(file);
+                            }
+                        }
+                    } catch (error) {
+                        // Fall back to convex hull
+                        if (loadingDetailedPolygons) {
+                            displayCoveragePolygonForFile(file);
+                        }
+                    }
+                });
+                
+                await Promise.all(promises);
+                
+                // Update progress
+                completed += batch.length;
+                progressText.textContent = `${completed}/${files.length}`;
+                
+                // Check if we should continue
+                if (!loadingDetailedPolygons) break;
+            }
+        }
+        
+        function displayDetailedBoundaryForFile(file, polygon) {
+            const fileColor = getFileColor(file.filename, allFiles.indexOf(file));
+            
+            const geoJsonLayer = L.geoJSON(polygon, {
+                style: {
+                    fillColor: currentFile === file.filename ? '#4ecdc4' : fileColor,
+                    color: currentFile === file.filename ? '#4ecdc4' : fileColor,
+                    weight: currentFile === file.filename ? 3 : 2,
+                    opacity: 0.8,
+                    fillOpacity: 0.3
+                }
+            });
+            
+            const popupContent = `
+                <div style="font-size: 12px;">
+                    <strong>${file.filename}</strong><br>
+                    <strong>Shots:</strong> ${file.shot_count.toLocaleString()}<br>
+                    <strong>Date:</strong> ${file.date}<br>
+                    <strong>Coverage:</strong> Detailed boundary (10m buffer)
+                </div>
+            `;
+            
+            geoJsonLayer.bindPopup(popupContent);
+            geoJsonLayer.on('click', () => selectFile(file.filename));
+            
+            geoJsonLayer.addTo(map);
+            detailedPolygons.set(file.filename, geoJsonLayer);
+        }
+        
+        function displayCoveragePolygonForFile(file) {
+            if (!file.polygon) return;
+            
+            const fileColor = getFileColor(file.filename, allFiles.indexOf(file));
+            
+            const geoJsonLayer = L.geoJSON(file.polygon, {
+                style: {
+                    fillColor: currentFile === file.filename ? '#4ecdc4' : fileColor,
+                    color: currentFile === file.filename ? '#4ecdc4' : fileColor,
+                    weight: currentFile === file.filename ? 3 : 2,
+                    opacity: 0.8,
+                    fillOpacity: 0.2,
+                    dashArray: '5, 5'  // Dashed to indicate fallback
+                }
+            });
+            
+            const popupContent = `
+                <div style="font-size: 12px;">
+                    <strong>${file.filename}</strong><br>
+                    <strong>Shots:</strong> ${file.shot_count.toLocaleString()}<br>
+                    <strong>Date:</strong> ${file.date}<br>
+                    <strong>Coverage:</strong> Convex hull (fallback)
+                </div>
+            `;
+            
+            geoJsonLayer.bindPopup(popupContent);
+            geoJsonLayer.on('click', () => selectFile(file.filename));
+            
+            geoJsonLayer.addTo(map);
+            detailedPolygons.set(file.filename, geoJsonLayer);
+        }
+        
+        function displayFlightBoxes() {
+            // Get current map bounds
+            const mapBounds = map.getBounds();
+            const mapBoundsObj = {
+                minLat: mapBounds.getSouth(),
+                maxLat: mapBounds.getNorth(),
+                minLon: mapBounds.getWest(),
+                maxLon: mapBounds.getEast()
+            };
+            
+            const filesToShow = allFiles.filter(f => {
+                if (!enabledFiles.has(f.filename)) return false;
+                if (currentFile && f.filename !== currentFile) return false;
+                
+                // Check if file bounds intersect with map bounds
+                return boundsIntersect(f.bounds, mapBoundsObj);
+            });
+            
+            filesToShow.forEach((file, index) => {
+                const bounds = file.bounds;
+                const fileColor = getFileColor(file.filename, allFiles.indexOf(file));
+                
+                const rectangle = L.rectangle([
+                    [bounds.minLat, bounds.minLon],
+                    [bounds.maxLat, bounds.maxLon]
+                ], {
+                    color: currentFile === file.filename ? '#4ecdc4' : fileColor,
+                    weight: 1,
+                    opacity: 0.8,
+                    fillOpacity: 0.05,
+                    fillColor: currentFile === file.filename ? '#4ecdc4' : fileColor,
+                    dashArray: '5, 5'
+                });
+                
+                rectangle.addTo(map);
+                flightBoxes.set(file.filename, rectangle);
+            });
+        }
+        
+        async function loadMarkers() {
+            const bounds = map.getBounds();
+            
+            showLoading(true);
+            filesInView.clear();
+            filesInBounds.clear();
+            
+            // First, check which files have data in bounds (regardless of enabled state)
+            for (const file of allFiles) {
+                if (!currentFile || file.filename === currentFile) {
+                    try {
+                        const params = new URLSearchParams({
+                            minLat: bounds.getSouth(),
+                            maxLat: bounds.getNorth(),
+                            minLon: bounds.getWest(),
+                            maxLon: bounds.getEast(),
+                            maxShots: 1 // Just check if any shots exist
+                        });
+                        
+                        const response = await fetch(`${serverUrl}/api/file/${file.filename}/shots?${params}`);
+                        const data = await response.json();
+                        
+                        if (data.success && data.total_in_bounds > 0) {
+                            // Track that this file has data in bounds
+                            filesInBounds.set(file.filename, data.total_in_bounds);
+                        }
+                    } catch (error) {
+                        console.error(`Error checking bounds for ${file.filename}:`, error);
+                    }
+                }
+            }
+            
+            // Now load markers only for enabled files
+            const filesToLoad = allFiles
+                .filter(f => enabledFiles.has(f.filename))
+                .filter(f => !currentFile || f.filename === currentFile)
+                .filter(f => filesInBounds.has(f.filename))
+                .map(f => f.filename);
+            
+            for (const filename of filesToLoad) {
+                if (markers.size >= CONFIG.maxMarkersPerView) break;
+                
+                try {
+                    const params = new URLSearchParams({
+                        minLat: bounds.getSouth(),
+                        maxLat: bounds.getNorth(),
+                        minLon: bounds.getWest(),
+                        maxLon: bounds.getEast(),
+                        maxShots: CONFIG.maxMarkersPerView - markers.size
+                    });
+                    
+                    const response = await fetch(`${serverUrl}/api/file/${filename}/shots?${params}`);
+                    const data = await response.json();
+                    
+                    if (data.success && data.shots.length > 0) {
+                        displayMarkers(data.shots, filename);
+                        // Track this file as being in view with its shot count
+                        filesInView.set(filename, data.shots.length);
+                    }
+                } catch (error) {
+                    console.error(`Error loading shots for ${filename}:`, error);
+                }
+            }
+            
+            showLoading(false);
+        }
+        
+        function displayMarkers(shots, filename) {
+            const fileIndex = allFiles.findIndex(f => f.filename === filename);
+            const fileColor = getFileColor(filename, fileIndex);
+            
+            shots.forEach(shot => {
+                const marker = L.circleMarker([shot.lat, shot.lon], {
+                    radius: 4,
+                    fillColor: currentFile === filename ? '#4ecdc4' : fileColor,
+                    color: '#fff',
+                    weight: 2,
+                    opacity: 0.6,
+                    fillOpacity: 0.6
+                });
+                
+                marker.shotData = { ...shot, filename };
+                
+                marker.on('click', () => selectShot(marker));
+                marker.on('mouseover', function() {
+                    if (this !== selectedMarker) {
+                        this.setStyle({ radius: 5 });
+                    }
+                });
+                marker.on('mouseout', function() {
+                    if (this !== selectedMarker) {
+                        this.setStyle({ radius: 4 });
+                    }
+                });
+                
+                marker.addTo(map);
+                markers.set(`${filename}_${shot.index}`, marker);
+            });
+        }
+        
+        // ===== Waveform Visualization Functions =====
+        
+        async function selectShot(marker) {
+            // Update marker styles
+            if (selectedMarker) {
+                selectedMarker.setStyle({
+                    radius: 4
+                });
+            }
+            
+            marker.setStyle({
+                fillColor: '#64b5f6',
+                radius: 6
+            });
+            selectedMarker = marker;
+            
+            const shot = marker.shotData;
+            
+            // Hide no-waveform message
+            document.getElementById('no-waveform').style.display = 'none';
+            document.getElementById('shot-info').style.display = 'block';
+            
+            // Temporarily show loading message in shot info
+            document.getElementById('shot-info').innerHTML = `
+                <div class="loading">Loading waveform...</div>
+            `;
+            
+            // Load waveform
+            try {
+                const response = await fetch(`${serverUrl}/api/file/${shot.filename}/waveform/${shot.index}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Store the data for redrawing
+                    currentWaveformData = { ...data, shot };
+                    
+                    // Reset plot range for new shot
+                    currentPlotRange = null;
+                    currentPlotShotNumber = null;
+                    
+                    // Plot waveform first
+                    plotWaveform(data);
+                    
+                    // Then update shot info
+                    let shotInfoHTML = `
+                        <div class="shot-info">
+                            <h4 style="margin: 0 0 10px 0; color: #4ecdc4;">Shot #${shot.shot_number}</h4>
+                            <div style="font-size: 11px; color: #888; margin-bottom: 8px;">
+                                File: ${shot.filename}
+                            </div>
+                            <div class="stat">
+                                <span>Location:</span>
+                                <span>${shot.lat.toFixed(6)}°, ${shot.lon.toFixed(6)}°</span>
+                            </div>
+                            <div class="stat">
+                                <span>Elevation Range:</span>
+                                <span>${data.z_bottom.toFixed(1)}m to ${data.z_top.toFixed(1)}m</span>
+                            </div>
+                            <div class="stat">
+                                <span>Height:</span>
+                                <span>${(data.z_top - data.z_bottom).toFixed(1)}m</span>
+                            </div>
+                            <div class="stat">
+                                <span>Noise Level:</span>
+                                <span>${data.sigmean.toFixed(2)}</span>
+                            </div>
+                    `;
+                    
+                    // Add L2 metrics if available
+                    if (data.l2_data && data.l2_data.found) {
+                        const l2 = data.l2_data;
+                        shotInfoHTML += `
+                            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #666;">
+                                <h5 style="margin: 0 0 8px 0; color: #4ecdc4; font-size: 12px;">L2 Metrics</h5>
+                                ${l2.ZG !== null && l2.ZG !== undefined ? `
+                                    <div class="stat">
+                                        <span>Ground (ZG):</span>
+                                        <span>${l2.ZG.toFixed(1)}m</span>
+                                    </div>
+                                ` : ''}
+                                ${l2.ZT !== null && l2.ZT !== undefined ? `
+                                    <div class="stat">
+                                        <span>Top (ZT):</span>
+                                        <span>${l2.ZT.toFixed(1)}m</span>
+                                    </div>
+                                ` : ''}
+                                ${l2.ZH !== null && l2.ZH !== undefined ? `
+                                    <div class="stat">
+                                        <span>ZH:</span>
+                                        <span>${l2.ZH.toFixed(1)}m</span>
+                                    </div>
+                                ` : ''}
+                                ${l2.ZG !== null && l2.ZT !== null ? `
+                                    <div class="stat">
+                                        <span>Canopy Height:</span>
+                                        <span>${(l2.ZT - l2.ZG).toFixed(1)}m</span>
+                                    </div>
+                                ` : ''}
+                                ${l2.RH25 !== null && l2.RH25 !== undefined ? `
+                                    <div class="stat">
+                                        <span>RH25:</span>
+                                        <span>${l2.RH25.toFixed(1)}m above ground</span>
+                                    </div>
+                                ` : ''}
+                                ${l2.RH50 !== null && l2.RH50 !== undefined ? `
+                                    <div class="stat">
+                                        <span>RH50:</span>
+                                        <span>${l2.RH50.toFixed(1)}m above ground</span>
+                                    </div>
+                                ` : ''}
+                                ${l2.RH75 !== null && l2.RH75 !== undefined ? `
+                                    <div class="stat">
+                                        <span>RH75:</span>
+                                        <span>${l2.RH75.toFixed(1)}m above ground</span>
+                                    </div>
+                                ` : ''}
+                                ${l2.RH95 !== null && l2.RH95 !== undefined ? `
+                                    <div class="stat">
+                                        <span>RH95:</span>
+                                        <span>${l2.RH95.toFixed(1)}m above ground</span>
+                                    </div>
+                                ` : ''}
+                                ${l2.RH100 !== null && l2.RH100 !== undefined ? `
+                                    <div class="stat">
+                                        <span>RH100:</span>
+                                        <span>${l2.RH100.toFixed(1)}m above ground</span>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `;
+                    } else if (data.l2_data) {
+                        shotInfoHTML += `
+                            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #666;">
+                                <div style="color: #888; font-size: 11px; font-style: italic;">
+                                    L2 data not available: ${data.l2_data.reason || 'Unknown reason'}
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    shotInfoHTML += '</div>';
+                    document.getElementById('shot-info').innerHTML = shotInfoHTML;
+                } else {
+                    document.getElementById('shot-info').innerHTML = 
+                        `<div class="shot-info"><span style="color: #ff6b6b;">Error: ${data.error}</span></div>`;
+                }
+            } catch (error) {
+                document.getElementById('shot-info').innerHTML = 
+                    `<div class="shot-info"><span style="color: #ff6b6b;">Error loading waveform</span></div>`;
+            }
+        }
+        
+        function captureCurrentRange(shotNumber) {
+            const plotDiv = document.getElementById('waveform-plot');
+            if (plotDiv && plotDiv.layout) {
+                currentPlotRange = {
+                    xaxis: plotDiv.layout.xaxis.range ? [...plotDiv.layout.xaxis.range] : null,
+                    yaxis: plotDiv.layout.yaxis.range ? [...plotDiv.layout.yaxis.range] : null
+                };
+                currentPlotShotNumber = shotNumber;
+            }
+        }
+
+        function plotWaveform(data) {
+            const traces = [];
+            const showL2 = document.getElementById('show-l2-metrics').checked;
+            
+            // Main waveform trace
+            traces.push({
+                x: data.waveform,
+                y: data.elevations,
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#4ecdc4', width: 2 },
+                name: 'Waveform',
+                showlegend: true
+            });
+            
+            // Noise level trace
+            traces.push({
+                x: [data.sigmean, data.sigmean],
+                y: [data.elevations[0], data.elevations[data.elevations.length - 1]],
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#ff6b6b', width: 2, dash: 'dash' },
+                name: 'Noise Level',
+                showlegend: true
+            });
+            
+            // Calculate y-axis range
+            let yMin = data.elevations[data.elevations.length - 1]; // Bottom elevation
+            let yMax = data.elevations[0]; // Top elevation
+            
+            const signalStart = data.sigmean; // Start from noise level
+            const maxWaveform = Math.max(...data.waveform);
+
+            // Add L2 data if available and checkbox is checked
+            if (showL2 && data.l2_data && data.l2_data.found) {
+                const l2 = data.l2_data;
+                
+                // Check if we have RH10 data
+                const rh10Elevation = l2.RH10_elevation;
+                const rh100Elevation = l2.RH100_elevation;
+                
+                // If we have RH10 and RH100, zoom to that range
+                if (rh10Elevation !== undefined && rh100Elevation !== undefined) {
+                    yMin = rh10Elevation - 5; // Add 5m padding below
+                    yMax = rh100Elevation + 5; // Add 5m padding above
+                } else if (l2.ZG !== undefined && l2.ZT !== undefined) {
+                    // Otherwise zoom to ground-to-top range
+                    yMin = l2.ZG - 5;
+                    yMax = l2.ZT + 5;
+                }
+                
+                // ZG - Ground elevation (green)
+                if (l2.ZG !== undefined && l2.ZG !== null) {
+                    traces.push({
+                        x: [signalStart, maxWaveform],
+                        y: [l2.ZG, l2.ZG],
+                        type: 'scatter',
+                        mode: 'lines',
+                        line: { color: '#2ecc71', width: 3, dash: 'solid' },
+                        name: 'ZG (Ground)',
+                        showlegend: true
+                    });
+                }
+                
+                // ZT - Top of canopy (dark green)
+                if (l2.ZT !== undefined && l2.ZT !== null) {
+                    traces.push({
+                        x: [signalStart, maxWaveform],
+                        y: [l2.ZT, l2.ZT],
+                        type: 'scatter',
+                        mode: 'lines',
+                        line: { color: '#27ae60', width: 3, dash: 'solid' },
+                        name: 'ZT (Top)',
+                        showlegend: true
+                    });
+                }
+                
+                // ZH - Canopy height (if available)
+                if (l2.ZH !== undefined && l2.ZH !== null) {
+                    traces.push({
+                        x: [signalStart, maxWaveform],
+                        y: [l2.ZH, l2.ZH],
+                        type: 'scatter',
+                        mode: 'lines',
+                        line: { color: '#16a085', width: 3, dash: 'solid' },
+                        name: 'ZH',
+                        showlegend: true
+                    });
+                }
+                
+                // RH metrics (heights above ground)
+                const rhMetrics = [
+                    { name: 'RH25', color: '#9b59b6', dash: 'dot' },
+                    { name: 'RH50', color: '#3498db', dash: 'dot' },
+                    { name: 'RH75', color: '#e67e22', dash: 'dot' },
+                    { name: 'RH95', color: '#e74c3c', dash: 'dot' },
+                    { name: 'RH100', color: '#c0392b', dash: 'solid' }
+                ];
+                
+                rhMetrics.forEach(metric => {
+                    // Only plot if this RH metric is selected
+                    if (selectedRHMetrics.has(metric.name)) {
+                        const elevKey = `${metric.name}_elevation`;
+                        if (l2[elevKey] !== undefined && l2[elevKey] !== null && l2[metric.name] !== undefined) {
+                            traces.push({
+                                x: [signalStart, maxWaveform],
+                                y: [l2[elevKey], l2[elevKey]],
+                                type: 'scatter',
+                                mode: 'lines',
+                                line: { color: metric.color, width: 2.5, dash: metric.dash },
+                                name: `${metric.name} (${l2[metric.name].toFixed(1)}m)`,
+                                showlegend: true
+                            });
+                        }
+                    }
+                });
+            }
+
+            // Use preserved range only if it's the same shot
+            let yRange = [yMin, yMax];
+            let xRange = null;
+
+            if (currentPlotRange && currentPlotShotNumber === data.shot_number) {
+                // Same shot - preserve zoom
+                if (currentPlotRange.yaxis) {
+                    yRange = currentPlotRange.yaxis;
+                }
+                if (currentPlotRange.xaxis) {
+                    xRange = currentPlotRange.xaxis;
+                }
+            }
+            
+            const layout = {
+                title: {
+                    text: `Shot #${data.shot_number}`,
+                    font: { color: '#4ecdc4', size: 16 }
+                },
+                xaxis: { 
+                    title: 'Return Signal Intensity',
+                    gridcolor: '#444',
+                    color: '#ccc',
+                    titlefont: { size: 14 },
+                    range: xRange
+                },
+                yaxis: { 
+                    title: 'Elevation (m)',
+                    gridcolor: '#444',
+                    color: '#ccc',
+                    titlefont: { size: 14 },
+                    range: yRange
+                },
+                height: 600,
+                autosize: true,
+                paper_bgcolor: '#2d2d2d',
+                plot_bgcolor: '#333',
+                font: { color: 'white', size: 12 },
+                margin: { t: 50, r: 50, b: 100, l: 70 },
+                showlegend: true,
+                legend: {
+                    orientation: 'h',
+                    x: 0.5,
+                    y: -0.35,
+                    xanchor: 'center',
+                    yanchor: 'top',
+                    bgcolor: 'rgba(0,0,0,0.7)',
+                    font: { size: 9 },
+                    bordercolor: '#444',
+                    borderwidth: 1,
+                    tracegroupgap: 5
+                },
+                dragmode: 'pan' // Enable panning by default
+            };
+            
+            const config = {
+                responsive: true,
+                maintainAspectRatio: false,
+                displayModeBar: true,
+                displaylogo: false,
+                modeBarButtonsToRemove: ['lasso2d', 'select2d']
+            };
+            
+            Plotly.newPlot('waveform-plot', traces, layout, config);
+        }
+        
+        function updateRHSelection() {
+            selectedRHMetrics.clear();
+            document.querySelectorAll('.rh-selector input[type="checkbox"]:checked').forEach(cb => {
+                selectedRHMetrics.add(cb.value);
+            });
+            updateWaveformDisplay();
+        }
+
+        function updateWaveformDisplay() {
+            if (currentWaveformData) {
+                // Capture current zoom before replotting (only for same shot)
+                captureCurrentRange(currentWaveformData.shot_number);
+                plotWaveform(currentWaveformData);
+            }
+        }
+        
+        function clearWaveformDisplay() {
+            // Reset waveform panel to initial state
+            document.getElementById('no-waveform').style.display = 'block';
+            document.getElementById('shot-info').style.display = 'none';
+            document.getElementById('shot-info').innerHTML = '';
+            
+            // Clear the plot
+            const plotEl = document.getElementById('waveform-plot');
+            if (plotEl) {
+                plotEl.innerHTML = '';
+                if (window.Plotly) {
+                    Plotly.purge('waveform-plot');
+                }
+            }
+            
+            // Clear stored waveform data
+            currentWaveformData = null;
+            currentPlotRange = null;
+            currentPlotShotNumber = null;
+        }
+        
+        function setWaveformSize(size) {
+            const waveformPanel = document.querySelector('.waveform-panel');
+            const buttons = document.querySelectorAll('.size-btn');
+            
+            // Remove active class from all buttons
+            buttons.forEach(btn => btn.classList.remove('active'));
+            
+            // Remove all size classes
+            waveformPanel.classList.remove('small', 'large');
+            
+            // Set panel width and activate button based on size
+            switch(size) {
+                case 'small':
+                    waveformPanel.classList.add('small');
+                    buttons[0].classList.add('active');
+                    break;
+                case 'medium':
+                    buttons[1].classList.add('active');
+                    break;
+                case 'large':
+                    waveformPanel.classList.add('large');
+                    buttons[2].classList.add('active');
+                    break;
+            }
+            
+            // Trigger map resize after transition
+            setTimeout(() => {
+                map.invalidateSize();
+                
+                // If we have waveform data, redraw the plot completely
+                if (currentWaveformData && document.getElementById('waveform-plot').hasChildNodes()) {
+                    plotWaveform(currentWaveformData);
+                }
+            }, CONFIG.animationDelays.resizeDelay);
+        }
+        
+        // ===== UI Update Functions =====
+        
+        function updateStats() {
+            const enabledCount = enabledFiles.size;
+            const totalShots = allFiles
+                .filter(f => enabledFiles.has(f.filename))
+                .reduce((sum, f) => sum + f.shot_count, 0);
+            
+            document.getElementById('total-files').textContent = allFiles.length;
+            document.getElementById('enabled-files').textContent = `${enabledCount}/${allFiles.length}`;
+            document.getElementById('total-shots').textContent = totalShots.toLocaleString();
+        }
+        
+        function updateZoomDisplay() {
+            const zoom = Math.floor(map.getZoom());
+            document.getElementById('current-zoom').textContent = zoom;
+        }
+        
+        function updateFilesInViewDisplay() {
+            const listEl = document.getElementById('files-in-view-list');
+            const countEl = document.getElementById('visible-shot-count');
+            
+            // First, remove in-view class from all file items
+            document.querySelectorAll('.file-item').forEach(item => {
+                item.classList.remove('in-view');
+            });
+            
+            listEl.innerHTML = '';
+            let totalShots = 0;
+            
+            if (filesInBounds.size === 0) {
+                listEl.innerHTML = '<p style="color: #888; text-align: center;">No files with data in this view</p>';
+                countEl.textContent = '0';
+                return;
+            }
+            
+            // Sort files by shot count (descending)
+            const sortedFiles = Array.from(filesInBounds.entries())
+                .sort((a, b) => b[1] - a[1]);
+            
+            sortedFiles.forEach(([filename, shotCount]) => {
+                // Only count enabled files in total
+                if (filesInView.has(filename)) {
+                    totalShots += filesInView.get(filename);
+                }
+                
+                // Update main file list to show this file is in view
+                const mainFileItem = document.getElementById(`file-item-${filename}`);
+                if (mainFileItem) {
+                    mainFileItem.classList.add('in-view');
+                }
+                
+                const fileIndex = allFiles.findIndex(f => f.filename === filename);
+                const fileColor = getFileColor(filename, fileIndex);
+                
+                const fileDiv = document.createElement('div');
+                fileDiv.className = 'file-in-view';
+                fileDiv.id = `file-view-${filename}`;
+                
+                if (filename === currentFile) {
+                    fileDiv.classList.add('highlighted');
+                }
+                
+                if (!enabledFiles.has(filename)) {
+                    fileDiv.classList.add('disabled');
+                }
+                
+                // Show actual displayed count if enabled, total count if disabled
+                const displayCount = filesInView.has(filename) ? filesInView.get(filename) : shotCount;
+                
+                fileDiv.innerHTML = `
+                    <div style="display: flex; align-items: center; width: 100%;">
+                        <input type="checkbox" class="file-in-view-checkbox" 
+                               ${enabledFiles.has(filename) ? 'checked' : ''}
+                               onchange="toggleFileFromView('${filename}')">
+                        <div class="file-in-view-content" onclick="selectFile('${filename}', event)">
+                            <div class="color-indicator" style="background-color: ${fileColor};"></div>
+                            <span class="file-name" title="${filename}">${filename}</span>
+                            <span class="shot-count">${displayCount}</span>
+                        </div>
+                    </div>
+                `;
+                
+                listEl.appendChild(fileDiv);
+            });
+            
+            countEl.textContent = totalShots.toLocaleString();
+        }
+        
+        function updateFilesToggleDisplay() {
+            const listEl = document.getElementById('files-toggle-list');
+            listEl.innerHTML = '';
+            
+            if (filesInBounds.size === 0) {
+                return;
+            }
+            
+            // Sort files by shot count (descending)
+            const sortedFiles = Array.from(filesInBounds.entries())
+                .sort((a, b) => b[1] - a[1]);
+            
+            sortedFiles.forEach(([filename, shotCount]) => {
+                const fileIndex = allFiles.findIndex(f => f.filename === filename);
+                const fileColor = getFileColor(filename, fileIndex);
+                
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'file-toggle-item';
+                if (!enabledFiles.has(filename)) {
+                    itemDiv.classList.add('disabled');
+                }
+                
+                // Show actual displayed count if enabled, total count if disabled
+                const displayCount = filesInView.has(filename) ? filesInView.get(filename) : shotCount;
+                
+                itemDiv.innerHTML = `
+                    <label class="file-toggle-label">
+                        <input type="checkbox" 
+                               ${enabledFiles.has(filename) ? 'checked' : ''}
+                               onchange="toggleFileFromBottom('${filename}')">
+                        <div class="color-indicator" style="background-color: ${fileColor};"></div>
+                        <span>${filename} (${displayCount})</span>
+                    </label>
+                `;
+                
+                listEl.appendChild(itemDiv);
+            });
+        }
+        
+        function toggleFileFromView(filename) {
+            toggleFile(filename);
+            
+            // Update the main checkbox too
+            const mainCheckbox = document.getElementById(`check-${filename}`);
+            if (mainCheckbox) {
+                mainCheckbox.checked = enabledFiles.has(filename);
+            }
+            
+            // Update the view item appearance
+            const viewItem = document.getElementById(`file-view-${filename}`);
+            if (viewItem) {
+                if (enabledFiles.has(filename)) {
+                    viewItem.classList.remove('disabled');
+                } else {
+                    viewItem.classList.add('disabled');
+                }
+            }
+            
+            // Update bottom toggle too
+            updateFilesToggleDisplay();
+        }
+        
+        function toggleFileFromBottom(filename) {
+            toggleFile(filename);
+            
+            // Update all checkboxes
+            const mainCheckbox = document.getElementById(`check-${filename}`);
+            if (mainCheckbox) {
+                mainCheckbox.checked = enabledFiles.has(filename);
+            }
+            
+            // Update view items
+            updateFilesInViewDisplay();
+        }
+        
+        // ===== Helper Functions =====
+        
+        function calculateBoundsFromPolygon(polygon) {
+            const coords = polygon.geometry.coordinates;
+            let minLat = Infinity, maxLat = -Infinity;
+            let minLon = Infinity, maxLon = -Infinity;
+            
+            function processCoords(coordList) {
+                coordList.forEach(coord => {
+                    if (Array.isArray(coord[0])) {
+                        processCoords(coord);
+                    } else {
+                        minLon = Math.min(minLon, coord[0]);
+                        maxLon = Math.max(maxLon, coord[0]);
+                        minLat = Math.min(minLat, coord[1]);
+                        maxLat = Math.max(maxLat, coord[1]);
+                    }
+                });
+            }
+            
+            processCoords(coords);
+            
+            return { minLat, maxLat, minLon, maxLon };
+        }
+        
+        function clearAllMapElements() {
+            clearMarkers();
+            clearPaths();
+            clearBoxes();
+            clearPolygons();
+            clearDetailedPolygons();
+            
+            // Also clear any GeoJSON layers that might be lingering
+            map.eachLayer(function(layer) {
+                if (layer instanceof L.GeoJSON || layer instanceof L.Polygon || layer instanceof L.Rectangle) {
+                    map.removeLayer(layer);
+                }
+            });
+        }
+        
+        function clearMarkers() {
+            // Clear selected marker first
+            selectedMarker = null;
+            
+            // Clear all markers from the map
+            markers.forEach((marker, key) => {
+                try {
+                    if (map.hasLayer(marker)) {
+                        map.removeLayer(marker);
+                    }
+                } catch (e) {
+                    console.error('Error removing marker:', e);
+                }
+            });
+            markers.clear();
+            filesInView.clear();
+            filesInBounds.clear();
+            
+            // Also clear any remaining circle markers that might be orphaned
+            map.eachLayer(function(layer) {
+                if (layer instanceof L.CircleMarker) {
+                    map.removeLayer(layer);
+                }
+            });
+        }
+        
+        function clearPaths() {
+            flightPaths.forEach(path => {
+                try {
+                    map.removeLayer(path);
+                } catch (e) {}
+            });
+            flightPaths.clear();
+        }
+        
+        function clearBoxes() {
+            flightBoxes.forEach(box => {
+                try {
+                    map.removeLayer(box);
+                } catch (e) {}
+            });
+            flightBoxes.clear();
+        }
+        
+        function clearPolygons() {
+            coveragePolygons.forEach(polygon => {
+                try {
+                    map.removeLayer(polygon);
+                } catch (e) {}
+            });
+            coveragePolygons.clear();
+        }
+        
+        function clearDetailedPolygons() {
+            detailedPolygons.forEach(polygon => {
+                try {
+                    map.removeLayer(polygon);
+                } catch (e) {}
+            });
+            detailedPolygons.clear();
+        }
+        
+        // ===== Initialization =====
+        
+        initMap();
+        connectToServer();
+        updateZoomDisplay();
+    </script>
+</body>
+</html>
