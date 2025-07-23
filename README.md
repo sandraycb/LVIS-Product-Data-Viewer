@@ -1,4 +1,11 @@
-# LVIS Product Data Viewer
+# <img width="167" height="143" alt="above_logo" src="https://github.com/user-attachments/assets/3491b9e5-083c-4bc6-b86c-8ecefab8660c" />  LVIS Product Data Viewer 
+### View & explore data from LVIS collected during the [NASA Arctic Boreal Vulnerability Experiment (ABoVE)](https://above.nasa.gov/)  
+#### Visualize lidar footprint waveforms and explore the lidar signal returns across a variety of terrain and vegetation land surfaces within flightlines aquired during 2017 & 2019 acquisitions across the North American boreal forest in Alaska and Canada.
+
+| **Example: zoomed out LVIS flightline** | **example: zoomed into LVIS flightline** | **example: LVIS1B footprint waveform** |
+| ------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------- |
+| <img width="300" height="150" alt="CoarseZoom" src="https://github.com/user-attachments/assets/13063ca1-f644-47fe-939d-9f449da543e5" />  | <img width="300" height="150" alt="DetailedZoom" src="https://github.com/user-attachments/assets/0c57c7b4-966a-4629-83fa-8d23162915da" /> | <img width="300" height="150" alt="WaveformZoom" src="https://github.com/user-attachments/assets/ebfd358d-5cc6-4cfe-9864-db2f773f1f77" /> |
+
 
 ## Overview
 
