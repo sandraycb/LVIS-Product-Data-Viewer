@@ -33,4 +33,10 @@ The LVIS Product Data Viewer was created to allow LVIS users to interactively pr
 TO DO
 
 ## Acknowledgements
-Code for this repository was developed with assistance from Claude (Anthropic) for initial code generation and debugging. Ideas are original to the authors, and all code has been reviewed, tested, and edited by them.
+Code for this repository was developed with assistance from Claude (Anthropic) for initial code generation and debugging. Ideas are original to the authors, and all code has been reviewed, tested, and edited by them.  
+
+##  
+ Repository Contributors | Role | Affiliation | 
+| ---------------- | ---------------- | ---------------- |
+| Sandra Yaacoub | PI |  Dept. Geography & Planning, Queen's University
+| Paul Montesano |  Contributor | NASA Goddard Space Flight Center ; ADNET Systems, Inc.|
