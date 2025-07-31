@@ -2,7 +2,7 @@
 ### View & explore data from LVIS collected during the [NASA Arctic Boreal Vulnerability Experiment (ABoVE)](https://above.nasa.gov/)  
 #### Visualize lidar footprint waveforms and explore the lidar signal returns across a variety of terrain and vegetation land surfaces within flightlines aquired during 2017 & 2019 acquisitions across the North American boreal forest in Alaska and Canada.
 
-| **Example: zoomed out LVIS flightline** | **example: zoomed into LVIS flightline** | **example: LVIS1B footprint waveform** |
+| **Example: zoomed out LVIS flightline** | **Example: zoomed into LVIS flightline** | **Example: LVIS1B footprint waveform** |
 | ------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------- |
 | <img width="300" height="150" alt="CoarseZoom" src="https://github.com/user-attachments/assets/13063ca1-f644-47fe-939d-9f449da543e5" />  | <img width="300" height="150" alt="DetailedZoom" src="https://github.com/user-attachments/assets/0c57c7b4-966a-4629-83fa-8d23162915da" /> | <img width="300" height="150" alt="WaveformZoom" src="https://github.com/user-attachments/assets/ebfd358d-5cc6-4cfe-9864-db2f773f1f77" /> |
 
@@ -28,9 +28,11 @@ The LVIS Product Data Viewer was created to allow LVIS users to interactively pr
 6. Open 'lvis-viewer.html' in your web browser
 7. The viewer will automatically connect to 'http://localhost:5000'
 
-## Usage Guide
+## Demo Video
+[![Watch the video](https://img.youtube.com/vi/I1WzewOrV8U/maxresdefault.jpg)](https://youtu.be/I1WzewOrV8U)
 
-TO DO
+## Additional Resources
+The lvis-tutorial.ipynb jupyter notebook contains a breakdown of accessing and visualizing data within the L1B and L2 files. 
 
 ## Acknowledgements
 Code for this repository was developed with assistance from Claude (Anthropic) for initial code generation and debugging. Ideas are original to the authors, and all code has been reviewed, tested, and edited by them.  
