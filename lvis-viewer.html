@@ -12,8 +12,8 @@
     Displays flight paths, coverage areas, and waveform data with interactive maps.
     
     Dependencies:
-    - Leaflet 1.9.4 for mapping
-    - Plotly 2.26.0 for waveform visualization
+    - Leaflet for mapping
+    - Plotly for waveform visualization
     
     Usage:
     1. Start the LVIS server (lvis-server.py)
@@ -21,7 +21,7 @@
     3. Connect to the server (default: http://localhost:5000)
     4. Select files to view and interact with the map
     
-    Version: 1.0.0
+    Version: 1.0.1
     -->
     
     <!-- External Dependencies -->
@@ -801,6 +801,7 @@
                         <div class="rh-selector">
                             <span style="font-size: 11px; color: #888;">RH Metrics:</span>
                             <div class="rh-checkboxes">
+                                <label><input type="checkbox" value="RH10" checked onchange="updateRHSelection()">10</label>
                                 <label><input type="checkbox" value="RH25" checked onchange="updateRHSelection()">25</label>
                                 <label><input type="checkbox" value="RH50" checked onchange="updateRHSelection()">50</label>
                                 <label><input type="checkbox" value="RH75" checked onchange="updateRHSelection()">75</label>
@@ -870,7 +871,7 @@
         let initialLoadComplete = false;
         let loadingDetailedPolygons = false;
         let currentWaveformData = null;
-        let selectedRHMetrics = new Set(['RH25', 'RH50', 'RH75', 'RH95', 'RH100']);
+        let selectedRHMetrics = new Set(['RH10', 'RH25', 'RH50', 'RH75', 'RH95', 'RH100']);
         let currentPlotRange = null;
         let currentPlotShotNumber = null;
         
@@ -1352,8 +1353,7 @@
         // ===== Polygon and Marker Display Functions =====
         
         // Note: All polygon display functions check bounds to only load
-        // data for files visible in the current map view. This significantly
-        // improves performance when working with many files.
+        // data for files visible in the current map view.
         
         function displayCoveragePolygons() {
             // Clear any existing detailed polygons first
@@ -1619,40 +1619,70 @@
             filesInView.clear();
             filesInBounds.clear();
             
-            // First, check which files have data in bounds (regardless of enabled state)
-            for (const file of allFiles) {
-                if (!currentFile || file.filename === currentFile) {
-                    try {
-                        const params = new URLSearchParams({
-                            minLat: bounds.getSouth(),
-                            maxLat: bounds.getNorth(),
-                            minLon: bounds.getWest(),
-                            maxLon: bounds.getEast(),
-                            maxShots: 1 // Just check if any shots exist
-                        });
-                        
-                        const response = await fetch(`${serverUrl}/api/file/${file.filename}/shots?${params}`);
-                        const data = await response.json();
-                        
-                        if (data.success && data.total_in_bounds > 0) {
-                            // Track that this file has data in bounds
-                            filesInBounds.set(file.filename, data.total_in_bounds);
-                        }
-                    } catch (error) {
-                        console.error(`Error checking bounds for ${file.filename}:`, error);
+            // Convert map bounds to object for easier use
+            const mapBoundsObj = {
+                minLat: bounds.getSouth(),
+                maxLat: bounds.getNorth(),
+                minLon: bounds.getWest(),
+                maxLon: bounds.getEast()
+            };
+            
+            // First filter files whose bounds intersect with the map view
+            const candidateFiles = allFiles.filter(file => {
+                // Skip if showing only current file and this isn't it
+                if (currentFile && file.filename !== currentFile) return false;
+                
+                // Check if file bounds intersect with map bounds
+                return boundsIntersect(file.bounds, mapBoundsObj);
+            });
+            
+            // Function to check a single file for shots in bounds
+            async function checkFileInBounds(file) {
+                try {
+                    const params = new URLSearchParams({
+                        minLat: bounds.getSouth(),
+                        maxLat: bounds.getNorth(),
+                        minLon: bounds.getWest(),
+                        maxLon: bounds.getEast(),
+                        maxShots: 1 // Just check if any shots exist
+                    });
+                    
+                    const response = await fetch(`${serverUrl}/api/file/${file.filename}/shots?${params}`);
+                    const data = await response.json();
+                    
+                    if (data.success && data.total_in_bounds > 0) {
+                        return { filename: file.filename, count: data.total_in_bounds };
                     }
+                    return null;
+                } catch (error) {
+                    console.error(`Error checking bounds for ${file.filename}:`, error);
+                    return null;
                 }
             }
             
+            // Process files in batches of 4 for parallel loading
+            const batchSize = 4;
+            for (let i = 0; i < candidateFiles.length; i += batchSize) {
+                const batch = candidateFiles.slice(i, i + batchSize);
+                const results = await Promise.all(batch.map(checkFileInBounds));
+                
+                // Process results
+                results.forEach(result => {
+                    if (result) {
+                        filesInBounds.set(result.filename, result.count);
+                    }
+                });
+            }
+            
             // Now load markers only for enabled files
-            const filesToLoad = allFiles
+            const filesToLoad = candidateFiles
                 .filter(f => enabledFiles.has(f.filename))
-                .filter(f => !currentFile || f.filename === currentFile)
                 .filter(f => filesInBounds.has(f.filename))
                 .map(f => f.filename);
             
-            for (const filename of filesToLoad) {
-                if (markers.size >= CONFIG.maxMarkersPerView) break;
+            // Function to load shots for a single file
+            async function loadShotsForFile(filename) {
+                if (markers.size >= CONFIG.maxMarkersPerView) return null;
                 
                 try {
                     const params = new URLSearchParams({
@@ -1667,18 +1697,34 @@
                     const data = await response.json();
                     
                     if (data.success && data.shots.length > 0) {
-                        displayMarkers(data.shots, filename);
-                        // Track this file as being in view with its shot count
-                        filesInView.set(filename, data.shots.length);
+                        return { filename, shots: data.shots };
                     }
+                    return null;
                 } catch (error) {
                     console.error(`Error loading shots for ${filename}:`, error);
+                    return null;
                 }
+            }
+            
+            // Load shots in batches of 4
+            for (let i = 0; i < filesToLoad.length; i += batchSize) {
+                if (markers.size >= CONFIG.maxMarkersPerView) break;
+                
+                const batch = filesToLoad.slice(i, i + batchSize);
+                const results = await Promise.all(batch.map(loadShotsForFile));
+                
+                // Display markers for each result
+                results.forEach(result => {
+                    if (result && result.shots.length > 0) {
+                        displayMarkers(result.shots, result.filename);
+                        filesInView.set(result.filename, result.shots.length);
+                    }
+                });
             }
             
             showLoading(false);
         }
-        
+
         function displayMarkers(shots, filename) {
             const fileIndex = allFiles.findIndex(f => f.filename === filename);
             const fileColor = getFileColor(filename, fileIndex);
@@ -1918,15 +1964,11 @@
                 
                 // If we have RH10 and RH100, zoom to that range
                 if (rh10Elevation !== undefined && rh100Elevation !== undefined) {
-                    yMin = rh10Elevation - 5; // Add 5m padding below
-                    yMax = rh100Elevation + 5; // Add 5m padding above
-                } else if (l2.ZG !== undefined && l2.ZT !== undefined) {
-                    // Otherwise zoom to ground-to-top range
-                    yMin = l2.ZG - 5;
-                    yMax = l2.ZT + 5;
+                    yMin = rh10Elevation - 2; // Add 2m padding below
+                    yMax = rh100Elevation + 2; // Add 2m padding above
                 }
                 
-                // ZG - Ground elevation (green)
+                // ZG (green)
                 if (l2.ZG !== undefined && l2.ZG !== null) {
                     traces.push({
                         x: [signalStart, maxWaveform],
@@ -1934,12 +1976,12 @@
                         type: 'scatter',
                         mode: 'lines',
                         line: { color: '#2ecc71', width: 3, dash: 'solid' },
-                        name: 'ZG (Ground)',
+                        name: 'ZG',
                         showlegend: true
                     });
                 }
                 
-                // ZT - Top of canopy (dark green)
+                // ZT (dark green)
                 if (l2.ZT !== undefined && l2.ZT !== null) {
                     traces.push({
                         x: [signalStart, maxWaveform],
@@ -1947,12 +1989,12 @@
                         type: 'scatter',
                         mode: 'lines',
                         line: { color: '#27ae60', width: 3, dash: 'solid' },
-                        name: 'ZT (Top)',
+                        name: 'ZT',
                         showlegend: true
                     });
                 }
                 
-                // ZH - Canopy height (if available)
+                // ZH (if available)
                 if (l2.ZH !== undefined && l2.ZH !== null) {
                     traces.push({
                         x: [signalStart, maxWaveform],
@@ -1965,13 +2007,14 @@
                     });
                 }
                 
-                // RH metrics (heights above ground)
+                // RH metrics
                 const rhMetrics = [
+                    { name: 'RH10', color: '#1abc9c', dash: 'dot' },
                     { name: 'RH25', color: '#9b59b6', dash: 'dot' },
                     { name: 'RH50', color: '#3498db', dash: 'dot' },
                     { name: 'RH75', color: '#e67e22', dash: 'dot' },
                     { name: 'RH95', color: '#e74c3c', dash: 'dot' },
-                    { name: 'RH100', color: '#c0392b', dash: 'solid' }
+                    { name: 'RH100', color: '#c0392b', dash: 'dot' }
                 ];
                 
                 rhMetrics.forEach(metric => {

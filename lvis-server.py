@@ -20,8 +20,8 @@ Usage:
         --buffer-size SIZE   Buffer size for detailed polygons in meters (default: 10)
         --max-markers N      Maximum markers per view (default: 10000)
 
-Author: LVIS Data Viewer Contributors
-Version: 1.0.0
+Author: Sandra Yaacoub, Paul Montesano
+Version: 1.0.1
 """
 
 import argparse
